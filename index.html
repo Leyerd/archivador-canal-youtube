@@ -212,6 +212,9 @@
   .vid.sel{background:var(--panel)}
   .vid.active{background:linear-gradient(90deg,var(--accent-soft),transparent 60%)}
   .vid.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2.5px;border-radius:2px;background:var(--accent);box-shadow:0 0 10px rgba(255,0,0,.55)}
+  .vid.archived{opacity:.55}
+  .vid.archived .check{visibility:hidden}
+  .vid.archived:hover{opacity:.8;background:var(--panel)}
   .vid .check{flex:0 0 auto}
   .vid .check .lbl{display:none}
   .thumb{
@@ -241,6 +244,8 @@
   .status .pbar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);background-size:200% 100%;animation:sheen 1.1s linear infinite}
   .status .done{font-size:11.5px;color:var(--ok);display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
   .status .done svg{width:13px;height:13px}
+  .status .arch{font-size:11px;color:var(--ink-3);display:inline-flex;align-items:center;gap:5px;justify-content:flex-end}
+  .status .arch svg{width:13px;height:13px;color:var(--ok)}
   .status .err{font-size:11px;color:var(--danger);display:inline-flex;align-items:center;gap:5px;justify-content:flex-end}
   @keyframes sheen{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
@@ -422,6 +427,7 @@
         <div class="toggle on" id="tgMeta" data-key="meta"><div><div class="tl">Miniatura + metadatos</div><div class="td">Incrustar en el archivo</div></div><div class="sw"><i></i></div></div>
         <div class="toggle" id="tgChap" data-key="chapters"><div><div class="tl">Capítulos</div><div class="td">Marcadores del video</div></div><div class="sw"><i></i></div></div>
         <div class="toggle on" id="tgDate" data-key="by_date"><div><div class="tl">Organizar por fecha</div><div class="td">Prefijo AAAA-MM-DD</div></div><div class="sw"><i></i></div></div>
+        <div class="toggle on" id="tgSkip" data-key="skip_existing"><div><div class="tl">Omitir ya descargados</div><div class="td">No repetir lo que ya tienes</div></div><div class="sw"><i></i></div></div>
       </div>
 
       <div class="grp">
@@ -527,7 +533,7 @@
   const State = {
     channel:null, videos:[], byId:{},
     running:false, paused:false, dest:"",
-    options:{mode:"video",quality:1080,subs:true,meta:true,chapters:false,by_date:true,concurrency:3,cookies_browser:"",cookies_file:""},
+    options:{mode:"video",quality:1080,subs:true,meta:true,chapters:false,by_date:true,concurrency:3,cookies_browser:"",cookies_file:"",skip_existing:true},
   };
 
   // ── Formato ──
@@ -575,6 +581,7 @@
     return v;
   }
   function statusCell(v){
+    if(v.status==="archived") return `<div class="arch" title="Ya está en tu carpeta de destino"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12l5 5L20 6"/></svg>ya descargado</div>`;
     if(v.status==="done") return `<div class="done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg>${fmtSize(estBytes(v))}</div>`;
     if(v.status==="error") return `<div class="err" title="${(v.error||'').replace(/"/g,'')}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>error</div>`;
     if(v.status==="downloading"||v.status==="processing"){
@@ -590,7 +597,7 @@
     ordered().filter(v=>v.title.toLowerCase().includes(q)).forEach(v=>{
       const busy = v.status==="downloading"||v.status==="processing";
       const row=document.createElement("div");
-      row.className="vid"+(v.sel?" sel":"")+(busy?" active":"");
+      row.className="vid"+(v.sel?" sel":"")+(busy?" active":"")+(v.status==="archived"?" archived":"");
       row.dataset.id=v.id;
       const thumb = `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
       row.innerHTML=`
@@ -615,7 +622,7 @@
   list.addEventListener("click",e=>{
     const row=e.target.closest(".vid"); if(!row) return;
     const v=State.byId[row.dataset.id];
-    if(!v || ["downloading","processing","done"].includes(v.status)) return;
+    if(!v || ["downloading","processing","done","archived"].includes(v.status)) return;
     v.sel=!v.sel; render();
   });
   $("selectAll").addEventListener("click",()=>{
@@ -637,6 +644,7 @@
     const queued=State.videos.filter(v=>v.sel&&["queued","error"].includes(v.status));
     const busy=State.videos.filter(v=>["downloading","processing"].includes(v.status));
     const done=State.videos.filter(v=>v.status==="done").length;
+    const archived=State.videos.filter(v=>v.status==="archived").length;
     const totalSel=queued.length+busy.length+done;
     const involved=State.videos.filter(v=>v.sel||["downloading","processing","done"].includes(v.status));
     const totalBytes=involved.reduce((s,v)=>s+estBytes(v),0);
@@ -647,9 +655,12 @@
       const doneBytes=State.videos.reduce((s,v)=>s+(v.status==="done"?estBytes(v):["downloading","processing"].includes(v.status)?estBytes(v)*v.prog/100:0),0);
       sum.innerHTML=`<span class="accent">●</span> <b>${done}</b>/${totalSel} listos <span class="sep">·</span> <b>${fmtSize(doneBytes)}</b> de ${fmtSize(totalBytes)} <span class="sep">·</span> ↓ <b>${rate.toFixed(1)} MB/s</b>`;
     } else if(queued.length>0){
-      sum.innerHTML=`<b>${queued.length}</b> seleccionados <span class="sep">·</span> <b>${fmtSize(queued.reduce((s,v)=>s+estBytes(v),0))}</b> estimado <span class="sep">·</span> ${fmtDurH(queued.reduce((s,v)=>s+v.duration,0))} de contenido`;
+      const arch = archived? ` <span class="sep">·</span> ${archived} ya descargados` : "";
+      sum.innerHTML=`<b>${queued.length}</b> seleccionados <span class="sep">·</span> <b>${fmtSize(queued.reduce((s,v)=>s+estBytes(v),0))}</b> estimado <span class="sep">·</span> ${fmtDurH(queued.reduce((s,v)=>s+v.duration,0))}${arch}`;
     } else if(done>0){
       sum.innerHTML=`<span class="done" style="color:var(--ok)">✓ ${done} videos archivados</span>`;
+    } else if(archived>0){
+      sum.innerHTML=`<span style="color:var(--ok)">✓ Todo al día</span> <span class="sep">·</span> ${archived} ya descargados`;
     } else {
       sum.innerHTML=`<span>Sin selección</span>`;
     }
@@ -736,7 +747,18 @@
     t.classList.toggle("on");
     State.options[t.dataset.key]=t.classList.contains("on");
     pushOptions();
+    if(t.dataset.key==="skip_existing") onSkipToggle();
   }));
+  function onSkipToggle(){
+    if(!State.options.skip_existing){
+      let n=0;
+      State.videos.forEach(v=>{ if(v.status==="archived"){ v.status="queued"; v.sel=false; n++; }});
+      if(n) toast("Se mostrarán también los "+n+" ya descargados");
+      render();
+    } else if(State.channel && !State.running){
+      $("scanBtn").click();   // re-detecta en disco lo ya descargado
+    }
+  }
   $("cMinus").addEventListener("click",()=>{State.options.concurrency=Math.max(1,State.options.concurrency-1);$("cVal").textContent=State.options.concurrency;pushOptions();});
   $("cPlus").addEventListener("click",()=>{State.options.concurrency=Math.min(8,State.options.concurrency+1);$("cVal").textContent=State.options.concurrency;pushOptions();});
   $("search").addEventListener("input",render);

@@ -112,6 +112,7 @@ class Store:
             "cookies_browser": "",   # "", "firefox", "chrome", "brave", ...
             "cookies_file": "",      # ruta a un cookies.txt exportado del navegador
             "by_date": True,
+            "skip_existing": True,   # no volver a descargar lo ya archivado
         }
         self.executor = None
 
@@ -197,6 +198,14 @@ def scan_channel(text: str) -> dict:
         }
         order.append(vid)
 
+    # marcar los que ya están descargados para no repetirlos
+    if STORE.options.get("skip_existing", True):
+        have = downloaded_ids(name)
+        for vid, v in videos.items():
+            if vid in have:
+                v["status"] = "archived"
+                v["sel"] = False
+
     with STORE.lock:
         STORE.channel = {"name": name, "handle": handle, "avatar": initials}
         STORE.videos = videos
@@ -222,6 +231,40 @@ def apply_cookies(opts: dict) -> dict:
 
 def safe_name(s: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "_", s).strip() or "Canal"
+
+
+ARCHIVE_NAME = ".descargados.txt"
+
+
+def channel_dir(channel_name: str) -> Path:
+    return Path(STORE.dest) / safe_name(channel_name)
+
+
+def archive_path(channel_name: str) -> Path:
+    return channel_dir(channel_name) / ARCHIVE_NAME
+
+
+def downloaded_ids(channel_name: str) -> set:
+    """IDs ya descargados: combina el registro de yt-dlp y los archivos en disco.
+
+    Detecta por el sufijo «[ID]» que la plantilla de salida añade al nombre, así
+    funciona aunque se haya borrado el registro o movido la app."""
+    ids = set()
+    base = channel_dir(channel_name)
+    arch = base / ARCHIVE_NAME
+    if arch.exists():
+        for line in arch.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if line:
+                ids.add(line.split()[-1])  # formato: "youtube <id>"
+    if base.exists():
+        media = (".mp4", ".mkv", ".webm", ".m4a", ".mp3", ".opus", ".flac", ".wav")
+        for p in base.rglob("*"):
+            if p.is_file() and p.suffix.lower() in media:
+                m = re.search(r"\[([A-Za-z0-9_-]{6,})\]", p.name)
+                if m:
+                    ids.add(m.group(1))
+    return ids
 
 
 def make_progress_hook(vid: str):
@@ -252,7 +295,7 @@ def make_progress_hook(vid: str):
 def ydl_opts_for(vid: str) -> dict:
     o = STORE.options
     ch = STORE.channel["name"] if STORE.channel else "Canal"
-    base = Path(STORE.dest) / safe_name(ch)
+    base = channel_dir(ch)
     if o["by_date"]:
         tmpl = str(base / "%(upload_date>%Y-%m-%d)s - %(title)s [%(id)s].%(ext)s")
     else:
@@ -272,6 +315,12 @@ def ydl_opts_for(vid: str) -> dict:
         "concurrent_fragment_downloads": 4,
     }
     apply_cookies(opts)
+
+    if o.get("skip_existing", True):
+        base.mkdir(parents=True, exist_ok=True)
+        opts["download_archive"] = str(base / ARCHIVE_NAME)
+    else:
+        opts["overwrites"] = True   # forzar re-descarga si el usuario lo pide
 
     if o["mode"] == "audio":
         opts["format"] = "bestaudio/best"

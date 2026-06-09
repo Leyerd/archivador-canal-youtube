@@ -14,6 +14,7 @@ Multiplataforma (Linux · macOS · Windows), con la estética de YouTube y modo 
 - **Escanea un canal entero** pegando su enlace o `@usuario`.
 - **Descarga real** con [yt-dlp](https://github.com/yt-dlp/yt-dlp): video (hasta 4K) o solo audio.
 - **Organiza automáticamente** en `Destino/Nombre del canal/`, con prefijo de fecha `AAAA-MM-DD` opcional.
+- **No repite descargas**: detecta lo ya bajado (registro + archivos en disco) y lo omite.
 - **Elige dónde guardar** con un selector de carpeta nativo del sistema.
 - **Extras**: subtítulos (todos los idiomas), miniatura + metadatos y capítulos incrustados.
 - **Descargas simultáneas** configurables (1–8) con barra de progreso por video y global.
@@ -71,6 +72,17 @@ Para descargar videos **privados o no listados** de tu canal, identifícate con 
 > botón **«Usar archivo cookies.txt»**: expórtalas con una extensión tipo
 > *Get cookies.txt* y selecciona el archivo. Cierra el navegador antes de descargar
 > si ves errores de "base de datos bloqueada".
+
+### ♻️ Sin descargas duplicadas
+Con **«Omitir ya descargados»** activado (por defecto), al escanear se marcan como
+*ya descargado* los videos que ya tienes y no se vuelven a bajar. Lo detecta de dos
+formas, así que funciona aunque cambies de equipo o borres el registro:
+
+1. Un **registro** `.descargados.txt` dentro de la carpeta del canal (lo mantiene yt-dlp).
+2. Un **rastreo de la carpeta** de destino: reconoce los archivos por el `[ID]` del
+   nombre, así que basta con que el archivo exista.
+
+Desactiva el interruptor si quieres **re-descargar** algo (sobrescribe lo existente).
 
 ## 🖥️ Instalar como app de escritorio (con icono)
 
