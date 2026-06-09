@@ -1,0 +1,26 @@
+# Entorno virtual
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+
+# Descargas (no subir videos al repo)
+Respaldo Canal/
+*.mp4
+*.mkv
+*.webm
+*.m4a
+*.mp3
+*.part
+*.ytdl
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
