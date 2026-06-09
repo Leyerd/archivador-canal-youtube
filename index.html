@@ -435,17 +435,33 @@
       </div>
 
       <div class="grp">
-        <span class="opt-label">Sesión / cookies</span>
+        <h3>Sesión · videos privados</h3>
+        <span class="opt-label">Navegador con tu sesión de YouTube</span>
         <select class="select qsel" id="cookies">
-          <option value="">Sin sesión (canal público)</option>
+          <option value="">Sin sesión (solo público)</option>
           <option value="firefox">Firefox</option>
           <option value="chrome">Chrome</option>
           <option value="brave">Brave</option>
           <option value="edge">Edge</option>
           <option value="chromium">Chromium</option>
+          <option value="vivaldi">Vivaldi</option>
+          <option value="opera">Opera</option>
           <option value="safari">Safari</option>
         </select>
-        <div style="font-size:11px;color:var(--ink-3);margin-top:7px;line-height:1.5">Usa las cookies de tu navegador para acceder a videos privados o no listados de tu cuenta.</div>
+        <div style="font-size:11px;color:var(--ink-3);margin:8px 0 10px;line-height:1.5">
+          Inicia sesión en ese navegador con la <b>cuenta de Google del canal</b> y selecciónalo: así podrás
+          descargar videos <b>privados o no listados</b> (pega su enlace o el de una lista privada).
+        </div>
+        <div class="folder" id="cookieFileRow" style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M5 3h9l5 5v11a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+          <span class="path" id="cookiePath">cookies.txt</span>
+          <button id="clearCookieFile">Quitar</button>
+        </div>
+        <button class="btn btn-ghost" id="pickCookies" style="width:100%;height:36px;font-size:12px;justify-content:center">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3v5h5"/><path d="M5 3h9l5 5v11a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
+          Usar archivo cookies.txt
+        </button>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:7px;line-height:1.5">Alternativa si el navegador cifra las cookies: expórtalas con una extensión y elige el archivo.</div>
       </div>
 
       <div class="grp">
@@ -511,7 +527,7 @@
   const State = {
     channel:null, videos:[], byId:{},
     running:false, paused:false, dest:"",
-    options:{mode:"video",quality:1080,subs:true,meta:true,chapters:false,by_date:true,concurrency:3,cookies_browser:""},
+    options:{mode:"video",quality:1080,subs:true,meta:true,chapters:false,by_date:true,concurrency:3,cookies_browser:"",cookies_file:""},
   };
 
   // ── Formato ──
@@ -698,6 +714,24 @@
   });
   $("quality").addEventListener("change",e=>{State.options.quality=+e.target.value;pushOptions();render();});
   $("cookies").addEventListener("change",e=>{State.options.cookies_browser=e.target.value;pushOptions();});
+
+  function renderCookieFile(){
+    const f=State.options.cookies_file;
+    $("cookieFileRow").style.display=f?"flex":"none";
+    if(f) $("cookiePath").textContent=f;
+  }
+  $("pickCookies").addEventListener("click",async()=>{
+    const b=$("pickCookies"); const html=b.innerHTML; b.textContent="…";
+    try{
+      const r=await api("/api/pick-cookies",{});
+      State.options.cookies_file=r.cookies_file||""; renderCookieFile();
+      if(r.picked) toast("Archivo de cookies seleccionado");
+    }catch(e){ toast("No se pudo abrir el selector"); }
+    b.innerHTML=html;
+  });
+  $("clearCookieFile").addEventListener("click",()=>{
+    State.options.cookies_file=""; renderCookieFile(); pushOptions(); toast("Archivo de cookies quitado");
+  });
   document.querySelectorAll(".toggle").forEach(t=>t.addEventListener("click",()=>{
     t.classList.toggle("on");
     State.options[t.dataset.key]=t.classList.contains("on");
@@ -728,7 +762,7 @@
     btn.disabled=true; span.textContent="Escaneando…";
     const emp=$("empty"); emp.classList.remove("err");
     try{
-      const snap=await api("/api/scan",{channel:ch, options:{cookies_browser:State.options.cookies_browser}});
+      const snap=await api("/api/scan",{channel:ch, options:{cookies_browser:State.options.cookies_browser, cookies_file:State.options.cookies_file}});
       applySnap(snap); renderChannel(); render();
       span.textContent="Re-escanear";
       toast(`${State.videos.length} videos encontrados`);
@@ -786,6 +820,8 @@
       applySnap(snap);
       if(State.options.mode==="audio"){ $("quality").disabled=true; $("qualityGrp").style.opacity=".4"; }
       $("cVal").textContent=State.options.concurrency;
+      $("cookies").value=State.options.cookies_browser||"";
+      renderCookieFile();
       if(State.channel){ renderChannel(); render(); }
       if(State.running) startPolling();
     }catch(e){}

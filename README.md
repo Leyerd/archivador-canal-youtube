@@ -57,10 +57,32 @@ Carpeta elegida/
 ```
 
 ### 🔐 Videos privados / tu propia cuenta
-En **Sesión / cookies** elige tu navegador (Firefox, Chrome, Brave…). yt-dlp usará sus
-cookies para acceder a videos privados o no listados de la cuenta con la que tengas
-sesión iniciada en ese navegador. Cierra el navegador antes de descargar si te da
-errores de base de datos bloqueada.
+Para descargar videos **privados o no listados** de tu canal, identifícate con la
+**cuenta de Google de ese canal**:
+
+1. Inicia sesión en YouTube **en tu navegador** con la cuenta dueña del canal.
+2. En el panel **Sesión · videos privados** selecciona ese navegador
+   (Firefox, Chrome, Brave, Edge…). La app usará sus cookies.
+3. Pega el **enlace del video privado/no listado** o el de una **lista privada**
+   (la pestaña pública `/videos` de un canal no muestra los privados, así que para
+   esos usa el enlace directo o una playlist).
+
+> 💡 Si tu navegador **cifra las cookies** (común en Chrome reciente) y falla, usa el
+> botón **«Usar archivo cookies.txt»**: expórtalas con una extensión tipo
+> *Get cookies.txt* y selecciona el archivo. Cierra el navegador antes de descargar
+> si ves errores de "base de datos bloqueada".
+
+## 🖥️ Instalar como app de escritorio (con icono)
+
+Tras la primera ejecución (que prepara el entorno), puedes añadir un lanzador con icono:
+
+| Sistema | Comando |
+|---|---|
+| **Linux** (Hyprland, GNOME, KDE…) | `./packaging/instalar-linux.sh` — aparece «Archivador de canal» en tu menú. Desinstalar: `./packaging/instalar-linux.sh --uninstall` |
+| **Windows** | `powershell -ExecutionPolicy Bypass -File packaging\crear-acceso-windows.ps1` — crea accesos en Escritorio y menú Inicio |
+| **macOS** | `./packaging/crear-app-macos.sh` — genera `Archivador de canal.app` en `/Applications` |
+
+El icono está en `assets/` (SVG + PNG + `.ico` + `.icns`).
 
 ## ⚖️ Aviso legal
 

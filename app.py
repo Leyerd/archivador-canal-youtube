@@ -61,6 +61,25 @@ def pick_folder_native(initial: str) -> str:
         return ""
 
 
+def pick_file_native(initial: str, title: str) -> str:
+    """Abre un diálogo nativo para elegir un archivo (p. ej. cookies.txt)."""
+    script = (
+        "import sys, tkinter as tk\n"
+        "from tkinter import filedialog\n"
+        "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+        "p = filedialog.askopenfilename(initialdir=sys.argv[1], title=sys.argv[2])\n"
+        "print(p or '')\n"
+    )
+    try:
+        out = subprocess.run(
+            [sys.executable, "-c", script, initial or str(Path.home()), title],
+            capture_output=True, text=True, timeout=180,
+        )
+        return out.stdout.strip()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def default_dest() -> str:
     home = Path.home()
     for name in ("Videos", "Vídeos", "Movies"):
@@ -91,6 +110,7 @@ class Store:
             "chapters": False,
             "concurrency": 3,
             "cookies_browser": "",   # "", "firefox", "chrome", "brave", ...
+            "cookies_file": "",      # ruta a un cookies.txt exportado del navegador
             "by_date": True,
         }
         self.executor = None
@@ -134,9 +154,7 @@ def scan_channel(text: str) -> dict:
         "skip_download": True,
         "ignoreerrors": True,
     }
-    cb = STORE.options.get("cookies_browser")
-    if cb:
-        ydl_opts["cookiesfrombrowser"] = (cb,)
+    apply_cookies(ydl_opts)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -188,6 +206,20 @@ def scan_channel(text: str) -> dict:
 
 
 # ─────────────────────────── Descarga ───────────────────────────
+def apply_cookies(opts: dict) -> dict:
+    """Aplica la sesión para acceder a videos privados/no listados del canal.
+
+    Prioridad: archivo cookies.txt explícito > cookies del navegador donde el
+    usuario inició sesión con la cuenta de Google del canal."""
+    o = STORE.options
+    cf = (o.get("cookies_file") or "").strip()
+    if cf and os.path.exists(cf):
+        opts["cookiefile"] = cf
+    elif o.get("cookies_browser"):
+        opts["cookiesfrombrowser"] = (o["cookies_browser"],)
+    return opts
+
+
 def safe_name(s: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "_", s).strip() or "Canal"
 
@@ -239,8 +271,7 @@ def ydl_opts_for(vid: str) -> dict:
         "fragment_retries": 5,
         "concurrent_fragment_downloads": 4,
     }
-    if o.get("cookies_browser"):
-        opts["cookiesfrombrowser"] = (o["cookies_browser"],)
+    apply_cookies(opts)
 
     if o["mode"] == "audio":
         opts["format"] = "bestaudio/best"
@@ -368,8 +399,9 @@ class Handler(BaseHTTPRequestHandler):
                 ch = (data.get("channel") or "").strip()
                 opts = data.get("options") or {}
                 with STORE.lock:
-                    if "cookies_browser" in opts:
-                        STORE.options["cookies_browser"] = opts["cookies_browser"]
+                    for k in ("cookies_browser", "cookies_file"):
+                        if k in opts:
+                            STORE.options[k] = opts[k]
                 if not ch:
                     return self._send(400, {"error": "Falta el canal"})
                 snap = scan_channel(ch)
@@ -399,6 +431,13 @@ class Handler(BaseHTTPRequestHandler):
                     with STORE.lock:
                         STORE.dest = chosen
                 self._send(200, {"dest": STORE.dest, "picked": bool(chosen)})
+
+            elif self.path == "/api/pick-cookies":
+                chosen = pick_file_native(str(Path.home()), "Elige tu archivo cookies.txt")
+                if chosen:
+                    with STORE.lock:
+                        STORE.options["cookies_file"] = chosen
+                self._send(200, {"cookies_file": STORE.options["cookies_file"], "picked": bool(chosen)})
 
             elif self.path == "/api/pause":
                 with STORE.lock:
