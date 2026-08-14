@@ -43,24 +43,24 @@
   html,body{height:100%}
   body{
     font-family:var(--body); color:var(--ink);
-    background:var(--page-bg);
-    min-height:100vh; display:flex; align-items:center; justify-content:center;
-    padding:28px; -webkit-font-smoothing:antialiased; transition:background .25s;
+    background:var(--bg);
+    height:100%; overflow:hidden;
+    -webkit-font-smoothing:antialiased; transition:background .25s;
   }
 
-  /* ── Window frame ───────────────────────────── */
+  /* ── Ventana completa ───────────────────────── */
   .app{
-    width:min(1080px,100%); height:min(760px,calc(100vh - 56px));
-    background:var(--bg); border:1px solid var(--line);
-    border-radius:16px; overflow:hidden; display:flex; flex-direction:column;
-    box-shadow:0 30px 70px -28px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.06) inset;
+    width:100%; height:100%;
+    background:var(--bg);
+    overflow:hidden; display:flex; flex-direction:column;
   }
   .titlebar{
     height:38px; flex:0 0 auto; display:flex; align-items:center; gap:14px;
     padding:0 14px; background:var(--titlebar);
     border-bottom:1px solid var(--line-soft);
   }
-  .traffic{display:flex; gap:8px}
+  /* Los puntos de «ventana falsa» sobran ocupando el navegador entero */
+  .traffic{display:none}
   .traffic i{width:11px;height:11px;border-radius:50%;background:#d8d8d8;display:block}
   html[data-theme="dark"] .traffic i{background:#3a3a3a}
   .traffic i:first-child{background:#e0b3b3}
@@ -251,9 +251,12 @@
 
   /* ── Settings rail ──────────────────────────── */
   .rail{
-    width:268px;flex:0 0 auto;border-left:1px solid var(--line-soft);
+    width:clamp(268px,21vw,340px);flex:0 0 auto;border-left:1px solid var(--line-soft);
     background:var(--bg-2);padding:18px;overflow-y:auto;
   }
+  .rail::-webkit-scrollbar{width:10px}
+  .rail::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:6px;border:3px solid var(--bg-2)}
+  .rail::-webkit-scrollbar-track{background:transparent}
   .rail h3{font-family:var(--disp);font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-bottom:13px}
   .rail .grp{margin-bottom:24px}
   .opt-label{font-size:12px;color:var(--ink-2);font-weight:500;margin-bottom:8px;display:block}
@@ -309,11 +312,65 @@
   }
   .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 
+  /* ── Cuenta de Google ───────────────────────── */
+  .gbtn{
+    width:100%;height:38px;display:inline-flex;align-items:center;justify-content:center;gap:9px;
+    background:var(--field-on);border:1px solid var(--line);border-radius:9px;cursor:pointer;
+    font-family:var(--body);font-size:12.5px;font-weight:600;color:var(--ink);transition:.12s;
+  }
+  .gbtn:hover{border-color:#c9c9c9;background:var(--panel-2)}
+  .gbtn:disabled{opacity:.55;cursor:default}
+  .gbtn svg{width:16px;height:16px;flex:0 0 auto}
+  .acct{display:flex;align-items:center;gap:10px;background:var(--field-on);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+  .acct .av{width:30px;height:30px;border-radius:50%;flex:0 0 auto;object-fit:cover;background:linear-gradient(150deg,#ff5252,#cc0000)}
+  .acct .who{flex:1;min-width:0}
+  .acct .who b{display:block;font-size:12.5px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acct .who span{display:block;font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .acct button{font-family:var(--body);font-size:11px;font-weight:600;color:var(--ink-3);background:none;border:none;cursor:pointer;flex:0 0 auto}
+  .acct button:hover{color:var(--danger)}
+  .note{font-size:11px;color:var(--ink-3);line-height:1.55;margin-top:8px}
+  .note a{color:var(--accent);text-decoration:none}
+  .note a:hover{text-decoration:underline}
+  .setup{margin-top:10px}
+  .setup summary{font-size:11.5px;color:var(--ink-2);cursor:pointer;font-weight:500;padding:4px 0}
+  .setup summary::marker{color:var(--ink-3)}
+  .setup ol{margin:8px 0 10px 16px;padding:0;font-size:11px;color:var(--ink-3);line-height:1.7}
+  .inp{
+    width:100%;background:var(--field-on);border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);font-family:var(--mono);font-size:11px;padding:8px 10px;outline:none;margin-bottom:7px;
+  }
+  .inp:focus{border-color:var(--accent)}
+  .inp::placeholder{color:var(--ink-3);font-family:var(--body)}
+  .warn{
+    display:flex;gap:8px;align-items:flex-start;background:var(--accent-soft);border:1px solid var(--accent);
+    border-radius:9px;padding:9px 11px;font-size:11px;color:var(--ink-2);line-height:1.5;margin-bottom:14px;
+  }
+  .warn svg{width:14px;height:14px;color:var(--accent);flex:0 0 auto;margin-top:1px}
+
+  /* Privacidad */
+  .pv{font-family:var(--body);font-size:10px;font-weight:600;padding:2px 6px;border-radius:5px;letter-spacing:.01em}
+  .pv-unlisted{color:#a86b00;background:rgba(230,160,0,.14);border:1px solid rgba(230,160,0,.4)}
+  .pv-private{color:var(--danger);background:var(--accent-soft);border:1px solid var(--accent)}
+  html[data-theme="dark"] .pv-unlisted{color:#f0b429}
+  .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex:0 0 auto}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .empty .cta{display:flex;flex-direction:column;gap:10px;align-items:center;margin-top:20px;width:280px}
+  .empty .cta .gbtn{height:42px;font-size:13px}
+  .empty .or{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em}
+
   @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  /* Ventana estrecha: el panel de ajustes pasa DEBAJO en vez de desaparecer
+     (si se oculta, se pierden el login de Google y el destino de descarga). */
   @media (max-width:880px){
-    body{padding:0}
-    .app{height:100vh;border-radius:0;border:none}
-    .rail{display:none}
+    .body{flex-direction:column; overflow-y:auto}
+    .main{min-height:60vh}
+    .rail{
+      width:100%;border-left:none;border-top:1px solid var(--line);
+      overflow-y:visible;
+      display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+      gap:0 22px;align-items:start;
+    }
+    .titlebar .twin{font-size:10px}
     .topbar{flex-wrap:wrap}
     .status{width:110px}
     .thumb{width:84px;height:48px}
@@ -359,8 +416,16 @@
         <div class="glyph" id="emptyGlyph">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
         </div>
-        <h2 id="emptyTitle">Empieza por tu canal</h2>
-        <p id="emptyText">Pega el enlace o el <b>@usuario</b> de tu canal. Leeremos toda su lista de videos para que elijas qué respaldar.</p>
+        <h2 id="emptyTitle">Entra con tu cuenta de Google</h2>
+        <p id="emptyText">Inicia sesión con la cuenta dueña del canal y verás <b>todos</b> tus videos: públicos, <b>no listados</b> y <b>privados</b>. Elige cuáles respaldar y dónde guardarlos.</p>
+        <div class="cta" id="emptyCta">
+          <button class="gbtn" id="emptyLogin">
+            <svg viewBox="0 0 48 48"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.2-3.8 6.6-9.5 6.6-16.1z"/><path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.400-9.1H4.2v5.7C7.8 41.1 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.6 28.1c-.5-1.4-.7-2.8-.7-4.1s.3-2.8.7-4.1v-5.7H4.2C2.8 17 2 20.4 2 24s.8 7 2.2 9.8l7.4-5.7z"/><path fill="#EA4335" d="M24 10.8c3.3 0 6.2 1.1 8.5 3.3l6.3-6.3C35 4.2 30 2 24 2 15.3 2 7.8 6.9 4.2 14.2l7.4 5.7c1.7-5.2 6.6-9.1 12.4-9.1z"/></svg>
+            Iniciar sesión con Google
+          </button>
+          <span class="or">o</span>
+          <span style="font-size:12px;color:var(--ink-3);text-align:center;line-height:1.5">pega arriba el enlace o <b>@usuario</b> de cualquier canal para ver solo sus videos públicos</span>
+        </div>
         <div class="hint" id="emptyHint">Diseñado para archivar contenido propio · sin marcas de agua</div>
       </div>
 
@@ -402,6 +467,62 @@
 
     <!-- Settings rail -->
     <aside class="rail">
+      <div class="warn" id="ffmpegWarn" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/></svg>
+        <span><b>ffmpeg no está instalado.</b> Se descargará el mejor archivo ya combinado (calidad limitada) y los subtítulos irán en archivos aparte.</span>
+      </div>
+
+      <div class="grp">
+        <h3>Cuenta de Google</h3>
+
+        <!-- Sin sesión -->
+        <div id="authOut">
+          <button class="gbtn" id="loginBtn">
+            <svg viewBox="0 0 48 48"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.2-3.8 6.6-9.5 6.6-16.1z"/><path fill="#34A853" d="M24 46c6 0 11-2 14.6-5.4l-7.1-5.5c-2 1.3-4.5 2.1-7.5 2.1-5.8 0-10.7-3.9-12.4-9.1H4.2v5.7C7.8 41.1 15.3 46 24 46z"/><path fill="#FBBC05" d="M11.6 28.1c-.5-1.4-.7-2.8-.7-4.1s.3-2.8.7-4.1v-5.7H4.2C2.8 17 2 20.4 2 24s.8 7 2.2 9.8l7.4-5.7z"/><path fill="#EA4335" d="M24 10.8c3.3 0 6.2 1.1 8.5 3.3l6.3-6.3C35 4.2 30 2 24 2 15.3 2 7.8 6.9 4.2 14.2l7.4 5.7c1.7-5.2 6.6-9.1 12.4-9.1z"/></svg>
+            <span id="loginLabel">Iniciar sesión con Google</span>
+          </button>
+          <button class="gbtn" id="cancelLogin" style="display:none;margin-top:7px;height:32px;font-size:12px">Cancelar</button>
+          <div class="note" id="authNote">Necesario para ver tus videos <b>privados</b> y <b>no listados</b>.</div>
+          <div class="note" id="clientInfo" style="display:none">
+            Cliente OAuth: <b id="clientIdShown" style="font-family:var(--mono);font-size:10px"></b>
+            · <a href="#" id="forgetClient">quitar</a>
+          </div>
+
+          <details class="setup" id="setupBox">
+            <summary>Configurar acceso (una sola vez)</summary>
+            <ol>
+              <li>Entra en <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a> y crea un proyecto.</li>
+              <li>En <i>APIs y servicios</i> activa la <b>YouTube Data API v3</b>.</li>
+              <li>En <i>Pantalla de consentimiento</i> elige <b>Externo</b> y añádete como <b>usuario de prueba</b>.</li>
+              <li>En <i>Credenciales</i> crea un <b>ID de cliente OAuth</b> de tipo <b>Aplicación de escritorio</b>.</li>
+              <li>Pega aquí el ID y el secreto, o carga el JSON descargado.</li>
+            </ol>
+            <input class="inp" id="clientId" type="text" placeholder="ID de cliente (…apps.googleusercontent.com)" spellcheck="false" autocomplete="off">
+            <input class="inp" id="clientSecret" type="password" placeholder="Secreto de cliente" spellcheck="false" autocomplete="off">
+            <button class="gbtn" id="saveClient" style="height:34px;font-size:12px">Guardar credenciales</button>
+            <button class="gbtn" id="clientFile" style="height:34px;font-size:12px;margin-top:7px">Cargar client_secret.json</button>
+            <div class="note">Si Google responde <b>«Acceso bloqueado · invalid_client»</b> o
+            <i>«The OAuth client was not found»</i>, el ID guardado no corresponde a ningún
+            cliente real: pulsa <b>quitar</b> y pega el de tu proyecto.</div>
+          </details>
+        </div>
+
+        <!-- Con sesión -->
+        <div id="authIn" style="display:none">
+          <div class="acct">
+            <img class="av" id="acctAv" alt="">
+            <div class="who"><b id="acctName">—</b><span id="acctHandle"></span></div>
+            <button id="logoutBtn" title="Cerrar sesión">Salir</button>
+          </div>
+          <button class="gbtn" id="loadMine" style="margin-top:9px;border-color:var(--accent);color:var(--accent)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+            Cargar todos mis videos
+          </button>
+          <div class="note">Incluye los privados y no listados. Para <b>descargar</b> un privado hace falta además la sesión del navegador (abajo).</div>
+        </div>
+        <div class="note" id="authErr" style="color:var(--danger);display:none"></div>
+      </div>
+
       <div class="grp">
         <h3>Formato</h3>
         <span class="opt-label">Qué descargar</span>
@@ -423,7 +544,11 @@
 
       <div class="grp">
         <h3>Extras</h3>
-        <div class="toggle on" id="tgSubs" data-key="subs"><div><div class="tl">Subtítulos</div><div class="td">Incrustar todos los idiomas</div></div><div class="sw"><i></i></div></div>
+        <div class="toggle on" id="tgSubs" data-key="subs"><div><div class="tl">Subtítulos</div><div class="td">Idiomas concretos (no «todos»)</div></div><div class="sw"><i></i></div></div>
+        <div id="subsLangRow">
+          <input class="inp" id="subsLangs" type="text" placeholder="es,en" spellcheck="false" style="margin-bottom:2px">
+          <div style="font-size:11px;color:var(--ink-3);line-height:1.5;margin-bottom:4px">Separa por comas. Pedir <b>all</b> hace que YouTube corte la descarga (error 429).</div>
+        </div>
         <div class="toggle on" id="tgMeta" data-key="meta"><div><div class="tl">Miniatura + metadatos</div><div class="td">Incrustar en el archivo</div></div><div class="sw"><i></i></div></div>
         <div class="toggle" id="tgChap" data-key="chapters"><div><div class="tl">Capítulos</div><div class="td">Marcadores del video</div></div><div class="sw"><i></i></div></div>
         <div class="toggle on" id="tgDate" data-key="by_date"><div><div class="tl">Organizar por fecha</div><div class="td">Prefijo AAAA-MM-DD</div></div><div class="sw"><i></i></div></div>
@@ -437,12 +562,17 @@
           <span class="path" id="destPath">~/Videos/Respaldo Canal</span>
           <button id="pickFolder">Cambiar</button>
         </div>
+        <details class="setup">
+          <summary>Escribir la ruta a mano</summary>
+          <input class="inp" id="destInput" type="text" placeholder="D:\Videos\Respaldo" spellcheck="false" style="margin-top:8px">
+          <button class="gbtn" id="destSave" style="height:34px;font-size:12px">Usar esta ruta</button>
+        </details>
         <div style="font-size:11px;color:var(--ink-3);margin-top:7px;line-height:1.5">Se crea una subcarpeta con el nombre del canal.</div>
       </div>
 
       <div class="grp">
-        <h3>Sesión · videos privados</h3>
-        <span class="opt-label">Navegador con tu sesión de YouTube</span>
+        <h3>Sesión del navegador</h3>
+        <span class="opt-label">Solo para <b>descargar</b> videos privados</span>
         <select class="select qsel" id="cookies">
           <option value="">Sin sesión (solo público)</option>
           <option value="firefox">Firefox</option>
@@ -455,8 +585,9 @@
           <option value="safari">Safari</option>
         </select>
         <div style="font-size:11px;color:var(--ink-3);margin:8px 0 10px;line-height:1.5">
-          Inicia sesión en ese navegador con la <b>cuenta de Google del canal</b> y selecciónalo: así podrás
-          descargar videos <b>privados o no listados</b> (pega su enlace o el de una lista privada).
+          La API de YouTube deja <i>listar</i> tus privados, pero no <i>descargarlos</i>: para eso hacen falta
+          las cookies del navegador donde iniciaste sesión con la <b>cuenta del canal</b>. Los no listados y
+          los públicos se bajan sin esto.
         </div>
         <div class="folder" id="cookieFileRow" style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3v5h5"/><path d="M5 3h9l5 5v11a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/></svg>
@@ -532,9 +663,109 @@
   // ── Estado local (espejo del backend) ──
   const State = {
     channel:null, videos:[], byId:{},
-    running:false, paused:false, dest:"",
-    options:{mode:"video",quality:1080,subs:true,meta:true,chapters:false,by_date:true,concurrency:3,cookies_browser:"",cookies_file:"",skip_existing:true},
+    running:false, paused:false, dest:"", ffmpeg:true,
+    scan:{running:false,msg:"",error:""},
+    auth:{has_client:false,signed_in:false,account:null,busy:false,error:""},
+    options:{mode:"video",quality:1080,subs:true,subs_langs:"es,en",meta:true,chapters:false,by_date:true,concurrency:3,cookies_browser:"",cookies_file:"",skip_existing:true},
   };
+
+  // ── Sesión con Google ──
+  const PV = {
+    unlisted:{cls:"pv-unlisted", txt:"no listado"},
+    private:{cls:"pv-private", txt:"privado"},
+  };
+
+  function renderAuth(){
+    const a=State.auth;
+    $("authIn").style.display  = a.signed_in ? "block" : "none";
+    $("authOut").style.display = a.signed_in ? "none"  : "block";
+    $("emptyCta").style.display = a.signed_in ? "none" : "flex";
+
+    if(a.signed_in && a.account){
+      $("acctName").textContent   = a.account.name || "Mi canal";
+      $("acctHandle").textContent = a.account.handle || "";
+      const av=$("acctAv");
+      if(a.account.thumb){ av.src=a.account.thumb; av.style.display="block"; }
+      else av.style.display="none";
+    }
+    const busy=a.busy;
+    $("loginBtn").disabled=busy;
+    $("loginLabel").textContent = busy ? "Esperando a Google…" : "Iniciar sesión con Google";
+    $("cancelLogin").style.display = busy ? "flex" : "none";
+    if(!a.signed_in && !a.has_client) $("setupBox").open = true;
+
+    // Qué credenciales hay guardadas (ayuda cuando Google responde invalid_client)
+    const ci=$("clientInfo");
+    ci.style.display = (!a.signed_in && a.has_client && a.client_id) ? "block" : "none";
+    if(a.client_id) $("clientIdShown").textContent = a.client_id.slice(0,22)+"…";
+
+    const err=$("authErr");
+    err.style.display = a.error ? "block" : "none";
+    err.textContent = a.error || "";
+  }
+
+  async function refreshAuth(){
+    try{ State.auth = await api("/api/auth/status",{}); renderAuth(); }
+    catch(e){ /* el snapshot ya trae el estado cacheado */ }
+  }
+
+  $("loginBtn").addEventListener("click",doLogin);
+  $("emptyLogin").addEventListener("click",doLogin);
+  async function doLogin(){
+    if(!State.auth.has_client){
+      $("setupBox").open=true;
+      toast("Configura primero tu cliente OAuth de Google");
+      $("clientId").focus();
+      return;
+    }
+    try{
+      await api("/api/auth/login",{});
+      State.auth.busy=true; State.auth.error=""; renderAuth();
+      toast("Autoriza el acceso en la ventana del navegador");
+      startPolling();
+    }catch(e){ toast(e.message); }
+  }
+
+  $("cancelLogin").addEventListener("click",async()=>{
+    try{ State.auth=await api("/api/auth/cancel",{}); renderAuth(); toast("Inicio de sesión cancelado"); }
+    catch(e){ toast(e.message); }
+  });
+
+  $("forgetClient").addEventListener("click",async e=>{
+    e.preventDefault();
+    try{
+      State.auth=await api("/api/auth/forget-client",{});
+      $("clientId").value=""; $("clientSecret").value="";
+      renderAuth(); toast("Credenciales borradas");
+    }catch(err){ toast(err.message); }
+  });
+
+  $("saveClient").addEventListener("click",async()=>{
+    const id=$("clientId").value.trim(), sec=$("clientSecret").value.trim();
+    if(!id){ toast("Pega el ID de cliente"); return; }
+    try{
+      State.auth=await api("/api/auth/client",{client_id:id, client_secret:sec});
+      renderAuth(); toast("Credenciales guardadas · ya puedes iniciar sesión");
+    }catch(e){ toast(e.message); }
+  });
+
+  $("clientFile").addEventListener("click",async()=>{
+    try{
+      const r=await api("/api/auth/client-file",{});
+      if(r.picked){ State.auth=r; renderAuth(); toast("Credenciales cargadas del JSON"); }
+    }catch(e){ toast(e.message); }
+  });
+
+  $("logoutBtn").addEventListener("click",async()=>{
+    try{
+      State.auth=await api("/api/auth/logout",{});
+      State.channel=null; State.videos=[]; State.byId={};
+      $("channel").classList.remove("on"); $("empty").style.display="flex";
+      renderAuth(); render(); toast("Sesión cerrada");
+    }catch(e){ toast(e.message); }
+  });
+
+  $("loadMine").addEventListener("click",()=>startScan("/api/scan-mine",{}));
 
   // ── Formato ──
   function fmtSize(b){
@@ -585,7 +816,9 @@
     if(v.status==="done") return `<div class="done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg>${fmtSize(estBytes(v))}</div>`;
     if(v.status==="error") return `<div class="err" title="${(v.error||'').replace(/"/g,'')}"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>error</div>`;
     if(v.status==="downloading"||v.status==="processing"){
-      const label = v.status==="processing" ? "procesando…" : "↓ "+v.rate.toFixed(1)+" MB/s · "+Math.round(v.prog)+"%";
+      const label = v.note ? v.note
+        : v.status==="processing" ? "procesando…"
+        : "↓ "+v.rate.toFixed(1)+" MB/s · "+Math.round(v.prog)+"%";
       return `<div class="dl"><div class="rate">${label}</div><div class="pbar"><i style="width:${v.prog}%"></i></div></div>`;
     }
     if(!v.sel) return `<div class="est" style="opacity:.4">—</div>`;
@@ -599,7 +832,9 @@
       const row=document.createElement("div");
       row.className="vid"+(v.sel?" sel":"")+(busy?" active":"")+(v.status==="archived"?" archived":"");
       row.dataset.id=v.id;
-      const thumb = `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
+      const thumb = v.thumb || `https://i.ytimg.com/vi/${v.id}/mqdefault.jpg`;
+      const pv = PV[v.privacy];
+      const pvBadge = pv ? `<span class="pv ${pv.cls}">${pv.txt}</span>` : "";
       row.innerHTML=`
         <div class="check ${v.sel?'checked':''}"><span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5"><path d="M5 12l5 5L20 6"/></svg></span></div>
         <div class="thumb" style="background:linear-gradient(135deg,hsl(${hue(v.id)} 42% 24%),hsl(${(hue(v.id)+40)%360} 46% 14%))">
@@ -609,7 +844,7 @@
         </div>
         <div class="vid-info">
           <div class="t">${v.title}</div>
-          <div class="m"><span>${fmtDateRel(v.date)}</span><span class="dot"></span><span class="badge">${State.options.mode==="audio"?"M4A":State.options.quality+"p"}</span></div>
+          <div class="m"><span>${fmtDateRel(v.date)}</span><span class="dot"></span><span class="badge">${State.options.mode==="audio"?"M4A":State.options.quality+"p"}</span>${pvBadge}</div>
         </div>
         <div class="status">${statusCell(v)}</div>`;
       frag.appendChild(row);
@@ -677,8 +912,18 @@
 
   // ── Aplicar snapshot del backend ──
   function applySnap(snap){
-    if(snap.channel) State.channel=snap.channel;
+    State.channel = snap.channel || null;
     State.running=snap.running; State.paused=snap.paused;
+    if(snap.scan) State.scan=snap.scan;
+    if(snap.auth){
+      const wasBusy=State.auth.busy;
+      State.auth=snap.auth; renderAuth();
+      if(wasBusy && !snap.auth.busy && snap.auth.signed_in) toast("Sesión iniciada ✓");
+    }
+    if(typeof snap.ffmpeg==="boolean"){
+      State.ffmpeg=snap.ffmpeg;
+      $("ffmpegWarn").style.display = snap.ffmpeg ? "none" : "flex";
+    }
     if(snap.dest){ State.dest=snap.dest; $("destPath").textContent=snap.dest; }
     if(snap.options) Object.assign(State.options,snap.options);
     if(Array.isArray(snap.videos)){
@@ -756,9 +1001,20 @@
       if(n) toast("Se mostrarán también los "+n+" ya descargados");
       render();
     } else if(State.channel && !State.running){
-      $("scanBtn").click();   // re-detecta en disco lo ya descargado
+      // re-escanea para volver a detectar en disco lo ya descargado
+      if(State.channel.mine) startScan("/api/scan-mine",{});
+      else if($("chInput").value.trim()) $("scanBtn").click();
     }
   }
+  let subsTimer;
+  $("subsLangs").addEventListener("input",e=>{
+    State.options.subs_langs=e.target.value;
+    clearTimeout(subsTimer); subsTimer=setTimeout(pushOptions,400);
+  });
+  function renderSubsLangs(){
+    $("subsLangRow").style.display=State.options.subs?"block":"none";
+  }
+  $("tgSubs").addEventListener("click",renderSubsLangs);
   $("cMinus").addEventListener("click",()=>{State.options.concurrency=Math.max(1,State.options.concurrency-1);$("cVal").textContent=State.options.concurrency;pushOptions();});
   $("cPlus").addEventListener("click",()=>{State.options.concurrency=Math.min(8,State.options.concurrency+1);$("cVal").textContent=State.options.concurrency;pushOptions();});
   $("search").addEventListener("input",render);
@@ -774,29 +1030,66 @@
     }catch(e){ toast("No se pudo abrir el selector"); }
     $("pickFolder").textContent="Cambiar";
   });
+  $("destSave").addEventListener("click",async()=>{
+    const p=$("destInput").value.trim();
+    if(!p){ toast("Escribe una ruta"); return; }
+    try{
+      const r=await api("/api/dest",{dest:p});
+      State.dest=r.dest; $("destPath").textContent=r.dest;
+      toast("Carpeta de destino actualizada");
+    }catch(e){ toast(e.message); }
+  });
+  $("destInput").addEventListener("keydown",e=>{ if(e.key==="Enter") $("destSave").click(); });
 
   // ── Escaneo ──
   $("chInput").addEventListener("keydown",e=>{ if(e.key==="Enter") $("scanBtn").click(); });
-  $("scanBtn").addEventListener("click",async()=>{
+  $("scanBtn").addEventListener("click",()=>{
     const ch=$("chInput").value.trim();
     if(!ch){ toast("Escribe el enlace o @usuario de tu canal"); return; }
+    startScan("/api/scan",{channel:ch, options:{cookies_browser:State.options.cookies_browser, cookies_file:State.options.cookies_file}});
+  });
+
+  // El escaneo corre en el servidor: aquí solo lo lanzamos y sondeamos su avance.
+  async function startScan(path, body){
     const btn=$("scanBtn"), span=btn.querySelector("span");
     btn.disabled=true; span.textContent="Escaneando…";
-    const emp=$("empty"); emp.classList.remove("err");
+    $("loadMine").disabled=true;
+    $("empty").classList.remove("err");
     try{
-      const snap=await api("/api/scan",{channel:ch, options:{cookies_browser:State.options.cookies_browser, cookies_file:State.options.cookies_file}});
-      applySnap(snap); renderChannel(); render();
-      span.textContent="Re-escanear";
-      toast(`${State.videos.length} videos encontrados`);
+      await api(path, body);
+      State.scan={running:true,msg:"Preparando…",error:""};
+      startPolling();
     }catch(e){
-      emp.classList.add("err"); emp.style.display="flex"; $("channel").classList.remove("on");
-      $("emptyGlyph").innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>';
-      $("emptyTitle").textContent="No se pudo escanear";
-      $("emptyText").textContent=e.message;
-      $("emptyHint").textContent="Revisa el enlace, tu conexión, o instala/actualiza yt-dlp";
-      span.textContent="Escanear canal";
-    }finally{ btn.disabled=State.running; }
-  });
+      scanFailed(e.message);
+    }
+  }
+
+  function scanFailed(msg){
+    const emp=$("empty");
+    emp.classList.add("err"); emp.style.display="flex";
+    $("channel").classList.remove("on"); $("emptyCta").style.display="none";
+    $("emptyGlyph").innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>';
+    $("emptyTitle").textContent="No se pudo escanear";
+    $("emptyText").textContent=msg;
+    $("emptyHint").textContent="Revisa el enlace, tu sesión de Google o tu conexión";
+    $("scanBtn").querySelector("span").textContent="Escanear canal";
+    $("scanBtn").disabled=false; $("loadMine").disabled=false;
+  }
+
+  function scanProgressUI(){
+    const s=State.scan;
+    if(s.running){
+      $("empty").style.display="flex"; $("empty").classList.remove("err");
+      $("channel").classList.remove("on"); $("emptyCta").style.display="none";
+      $("emptyGlyph").innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3a9 9 0 109 9"/></svg>';
+      $("emptyGlyph").style.animation="spin 1.1s linear infinite";
+      $("emptyTitle").textContent="Leyendo tu canal…";
+      $("emptyText").textContent=s.msg||"Un momento";
+      $("emptyHint").textContent="Los videos privados y no listados también se incluyen";
+    } else {
+      $("emptyGlyph").style.animation="";
+    }
+  }
 
   // ── Descargas ──
   $("dlBtn").addEventListener("click",async()=>{
@@ -820,16 +1113,28 @@
   async function poll(){
     try{
       const snap=await api("/api/state");
-      const wasRunning=State.running;
+      const wasRunning=State.running, wasScanning=State.scan.running;
       applySnap(snap);
-      if(State.channel) renderChannel();
-      render();
+
+      if(State.scan.running){ scanProgressUI(); }
+      else if(wasScanning){
+        scanProgressUI();
+        $("scanBtn").disabled=false; $("loadMine").disabled=false;
+        if(State.scan.error){ scanFailed(State.scan.error); }
+        else {
+          renderChannel(); render();
+          $("scanBtn").querySelector("span").textContent="Re-escanear";
+          const oc=State.videos.filter(v=>v.privacy==="private"||v.privacy==="unlisted").length;
+          toast(`${State.videos.length} videos encontrados`+(oc?` · ${oc} ocultos`:""));
+        }
+      } else if(State.channel){ renderChannel(); render(); }
+
       if(wasRunning && !State.running){
-        stopPolling();
         $("dlLabel").textContent="Listo ✓";
         toast("Descargas finalizadas");
         setTimeout(()=>{$("dlLabel").textContent="Descargar selección";updateSummary();},2600);
       }
+      if(!State.running && !State.scan.running && !State.auth.busy) stopPolling();
     }catch(e){/* reintenta */}
   }
   function startPolling(){ if(pollTimer)return; poll(); pollTimer=setInterval(poll,700); }
@@ -843,9 +1148,14 @@
       if(State.options.mode==="audio"){ $("quality").disabled=true; $("qualityGrp").style.opacity=".4"; }
       $("cVal").textContent=State.options.concurrency;
       $("cookies").value=State.options.cookies_browser||"";
+      $("destInput").value=State.dest||"";
+      $("subsLangs").value=State.options.subs_langs||"es,en";
+      renderSubsLangs();
       renderCookieFile();
       if(State.channel){ renderChannel(); render(); }
-      if(State.running) startPolling();
+      if(State.running||State.scan.running||State.auth.busy) startPolling();
+      // comprueba la sesión contra Google (por si caducó entre ejecuciones)
+      if(State.auth.signed_in) refreshAuth();
     }catch(e){}
   })();
 })();
