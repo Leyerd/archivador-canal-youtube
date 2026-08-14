@@ -257,8 +257,22 @@ background:#0f0f0f;color:#f1f1f1;font:16px/1.6 system-ui,sans-serif">
     return Handler
 
 
-def login(open_browser=True, timeout=LOGIN_TIMEOUT) -> dict:
+_ACTIVE = {"state": None}   # login en curso, para poder cancelarlo desde la UI
+
+
+def cancel_login() -> None:
+    """Aborta el login que esté esperando a que autorices en el navegador."""
+    st = _ACTIVE.get("state")
+    if st and not st.done.is_set():
+        st.error = "Inicio de sesión cancelado."
+        st.done.set()
+
+
+def login(open_browser=True, timeout=LOGIN_TIMEOUT, opener=None) -> dict:
     """Ejecuta el flujo completo (bloqueante) y guarda los tokens.
+
+    `opener` abre el permiso en un navegador concreto (p. ej. Chrome); conviene
+    que sea el mismo donde tienes iniciada la sesión de YouTube.
 
     Devuelve el token guardado. Lanza AuthError con un mensaje legible."""
     client = load_client()
@@ -276,6 +290,7 @@ def login(open_browser=True, timeout=LOGIN_TIMEOUT) -> dict:
     )
 
     st = _LoginState()
+    _ACTIVE["state"] = st
     # Puerto efímero en el bucle local: los clientes de escritorio de Google
     # aceptan cualquier puerto de 127.0.0.1 como URI de redirección.
     try:
@@ -300,7 +315,7 @@ def login(open_browser=True, timeout=LOGIN_TIMEOUT) -> dict:
         }
         url = AUTH_ENDPOINT + "?" + urllib.parse.urlencode(params)
         if open_browser:
-            webbrowser.open(url)
+            (opener or webbrowser.open)(url)
 
         if not st.done.wait(timeout):
             raise AuthError(
@@ -321,6 +336,7 @@ def login(open_browser=True, timeout=LOGIN_TIMEOUT) -> dict:
             },
         )
     finally:
+        _ACTIVE["state"] = None
         srv.shutdown()
         srv.server_close()
 

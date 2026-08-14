@@ -61,12 +61,97 @@ from ytauth import AuthError
 CANCELLED = getattr(yt_dlp.utils, "DownloadCancelled", None) or KeyboardInterrupt
 
 
-def has_ffmpeg() -> bool:
-    """ffmpeg hace falta para fusionar video+audio, subtítulos y miniaturas."""
-    return bool(shutil.which("ffmpeg"))
+def find_ffmpeg() -> str:
+    """Ruta de ffmpeg (fusiona video+audio, incrusta subtítulos y miniatura).
+
+    Busca también en las rutas típicas de instalación: tras un `winget install`
+    el PATH solo se refresca en sesiones nuevas, y el usuario vería «no está
+    instalado» justo después de haberlo instalado."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+
+    candidates = []
+    if sys.platform.startswith("win"):
+        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local")
+        candidates += sorted((local / "Microsoft/WinGet/Packages").glob(
+            "*FFmpeg*/**/bin/ffmpeg.exe"))
+        candidates += [
+            local / "Microsoft/WinGet/Links/ffmpeg.exe",
+            Path(r"C:\ProgramData\chocolatey\bin\ffmpeg.exe"),
+            Path(r"C:\ffmpeg\bin\ffmpeg.exe"),
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "ffmpeg/bin/ffmpeg.exe",
+        ]
+    else:
+        candidates += [Path(p) for p in (
+            "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg",
+            "/usr/bin/ffmpeg", "/snap/bin/ffmpeg")]
+    candidates.append(HERE / ("ffmpeg.exe" if sys.platform.startswith("win") else "ffmpeg"))
+
+    for c in candidates:
+        try:
+            if c.is_file():
+                return str(c)
+        except OSError:
+            continue
+    return ""
 
 
-FFMPEG = has_ffmpeg()
+FFMPEG_PATH = find_ffmpeg()
+FFMPEG = bool(FFMPEG_PATH)
+
+
+# ─────────────────────────── Navegador ───────────────────────────
+def chrome_command() -> list:
+    """Orden para abrir Chrome, o [] si no está instalado."""
+    if sys.platform.startswith("win"):
+        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData/Local")
+        for p in (
+            Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Google/Chrome/Application/chrome.exe",
+            Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")) / "Google/Chrome/Application/chrome.exe",
+            local / "Google/Chrome/Application/chrome.exe",
+        ):
+            if p.is_file():
+                return [str(p)]
+    elif sys.platform == "darwin":
+        if Path("/Applications/Google Chrome.app").exists():
+            return ["open", "-a", "Google Chrome"]
+    else:
+        for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+            found = shutil.which(name)
+            if found:
+                return [found]
+    return []
+
+
+BROWSER_PREF = "chrome"   # lo fija --browser en el arranque
+
+
+def open_url(url: str) -> None:
+    """Abre una URL en el navegador elegido (Chrome por defecto si existe).
+
+    Se usa tanto para la interfaz como para el permiso de Google: conviene que
+    sea el mismo navegador donde tienes la sesión de YouTube iniciada."""
+    pref = (BROWSER_PREF or "").strip()
+    if pref and pref not in ("default", "sistema", "system"):
+        cmd = chrome_command() if pref == "chrome" else []
+        if not cmd and pref != "chrome":
+            # ruta a un ejecutable, o nombre conocido por el módulo webbrowser
+            if Path(pref).is_file():
+                cmd = [pref]
+            else:
+                try:
+                    webbrowser.get(pref).open(url)
+                    return
+                except webbrowser.Error:
+                    cmd = []
+        if cmd:
+            try:
+                subprocess.Popen(cmd + [url], close_fds=True)
+                return
+            except OSError:
+                pass
+    webbrowser.open(url)   # último recurso: el navegador por defecto
 
 
 def pick_folder_native(initial: str) -> str:
@@ -447,6 +532,9 @@ def ydl_opts_for(vid: str, with_subs=True) -> dict:
         "concurrent_fragment_downloads": 4,
         "windowsfilenames": sys.platform.startswith("win"),
     }
+    if FFMPEG_PATH and not shutil.which("ffmpeg"):
+        # instalado pero fuera del PATH de este proceso: se lo decimos a yt-dlp
+        opts["ffmpeg_location"] = FFMPEG_PATH
     apply_cookies(opts)
 
     if o.get("skip_existing", True):
@@ -695,12 +783,8 @@ class Handler(BaseHTTPRequestHandler):
 
             def worker():
                 try:
-                    ytauth.login()
+                    ytauth.login(opener=open_url)
                     refresh_auth(network=True)
-                except AuthError as e:
-                    with STORE.lock:
-                        STORE.auth["busy"] = False
-                        STORE.auth["error"] = str(e)
                 except Exception as e:  # noqa: BLE001
                     with STORE.lock:
                         STORE.auth["busy"] = False
@@ -711,6 +795,20 @@ class Handler(BaseHTTPRequestHandler):
                 STORE.auth["error"] = ""
             threading.Thread(target=worker, daemon=True).start()
             return self._send(200, {"ok": True})
+
+        if path == "/api/auth/cancel":
+            ytauth.cancel_login()
+            with STORE.lock:
+                STORE.auth["busy"] = False
+                STORE.auth["error"] = ""
+            return self._send(200, dict(STORE.auth))
+
+        if path == "/api/auth/forget-client":
+            ytauth.clear_client()
+            ytauth.cancel_login()
+            with STORE.lock:
+                STORE.auth["busy"] = False
+            return self._send(200, refresh_auth(network=False))
 
         if path == "/api/auth/logout":
             ytauth.logout()
@@ -820,11 +918,19 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    global BROWSER_PREF
     ap = argparse.ArgumentParser(description="Archivador de canal de YouTube")
     ap.add_argument("--port", type=int, default=8717)
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--no-browser", action="store_true")
+    ap.add_argument(
+        "--browser", default="chrome",
+        help="Navegador para abrir la app y el permiso de Google: chrome "
+             "(por defecto), default (el del sistema), firefox, o la ruta a un "
+             "ejecutable.",
+    )
     args = ap.parse_args()
+    BROWSER_PREF = args.browser
 
     refresh_auth(network=False)
 
@@ -832,12 +938,17 @@ def main():
     url = f"http://{args.host}:{args.port}/"
     print(f"\n  ▶ Archivador de canal en  {url}")
     print(f"  ▶ Destino por defecto:    {STORE.dest}")
-    if not FFMPEG:
-        print("  ⚠ ffmpeg no está en el PATH: se descargará el mejor archivo ya")
+    if FFMPEG:
+        print(f"  ▶ ffmpeg:                 {FFMPEG_PATH}")
+    else:
+        print("  ⚠ ffmpeg no encontrado: se descargará el mejor archivo ya")
         print("    combinado (calidad limitada) y los subtítulos irán aparte.")
+        print("    Instálalo con:  winget install Gyan.FFmpeg")
+    if BROWSER_PREF == "chrome" and not chrome_command():
+        print("  ⚠ Chrome no encontrado: se usará el navegador por defecto.")
     print("  ▶ Ctrl+C para salir.\n")
     if not args.no_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.6, lambda: open_url(url)).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

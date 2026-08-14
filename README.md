@@ -35,8 +35,33 @@ Multiplataforma (Linux · macOS · Windows), con la estética de YouTube y modo 
 ### Windows
 Doble clic en **`run.bat`** (o ejecútalo desde la terminal).
 
-El lanzador crea un entorno virtual, instala `yt-dlp` y abre la app en tu navegador
-(`http://127.0.0.1:8717`). Para cambiar el puerto: `./run.sh --port 9000`.
+El lanzador crea un entorno virtual, instala `yt-dlp` y abre la app **en Chrome**
+(`http://127.0.0.1:8717`), ocupando la ventana completa del navegador.
+
+| Quiero… | Opción |
+|---|---|
+| Otro puerto | `--port 9000` |
+| El navegador del sistema | `--browser default` |
+| Otro navegador concreto | `--browser firefox` o `--browser "C:\ruta\navegador.exe"` |
+| No abrir nada | `--no-browser` |
+
+> 💡 Conviene usar el navegador donde tienes iniciada tu sesión de YouTube: la app
+> lo reutiliza para el permiso de Google y para las cookies de los videos privados.
+
+### ffmpeg
+
+Sin ffmpeg la app funciona, pero YouTube solo entrega un archivo ya combinado
+(normalmente 360p) y los subtítulos quedan en archivos sueltos. Para calidad
+completa:
+
+```
+winget install Gyan.FFmpeg        # Windows
+brew install ffmpeg               # macOS
+sudo apt install ffmpeg           # Debian/Ubuntu
+```
+
+En Windows el `PATH` solo se refresca en ventanas nuevas, así que la app también
+busca ffmpeg en las rutas habituales de instalación: no hace falta reiniciar nada.
 
 ### Manual
 ```bash
@@ -79,6 +104,10 @@ vez (es gratis y toma unos minutos):
    **secreto**, o pulsa **Cargar client_secret.json** con el archivo descargado.
 6. Pulsa **Iniciar sesión con Google**, autoriza en el navegador y luego
    **Cargar todos mis videos**.
+
+> ❗ Si Google responde **«Acceso bloqueado · Error 401: invalid_client»** o
+> *«The OAuth client was not found»*, el ID guardado no corresponde a ningún
+> cliente real. Pulsa **quitar** junto al ID mostrado y pega el de tu proyecto.
 
 Permisos que se piden: **solo lectura** (`youtube.readonly`). La app nunca puede
 modificar ni borrar nada de tu canal. Los tokens se guardan solo en tu equipo
