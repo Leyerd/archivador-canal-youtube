@@ -20,6 +20,11 @@ Respaldo Canal/
 *.part
 *.ytdl
 
+# Credenciales de Google (se guardan fuera del repo, pero por si acaso)
+client_secret*.json
+client.json
+token.json
+
 # Sistema
 .DS_Store
 Thumbs.db

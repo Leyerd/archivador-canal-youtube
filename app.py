@@ -6,17 +6,26 @@ Backend multiplataforma (Linux / macOS / Windows). Sirve la interfaz web
 (index.html, misma estética que la maqueta) y realiza las descargas reales
 con yt-dlp. La UI se abre sola en el navegador.
 
+Dos formas de listar videos:
+
+  · **Con tu cuenta de Google** (recomendado): inicia sesión y la app usa la
+    YouTube Data API para listar **todos** los videos de tu canal, incluidos
+    los **privados** y **no listados**.
+  · **Sin sesión**: pega el enlace o @usuario de cualquier canal y se lee su
+    pestaña pública de videos con yt-dlp.
+
 Uso:
     python3 app.py
     python3 app.py --port 8717 --no-browser
 
-Dependencias: yt-dlp (Python module) y ffmpeg en el PATH.
+Dependencias: yt-dlp (módulo de Python) y ffmpeg en el PATH (recomendado).
 """
 
 import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -29,12 +38,35 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 INDEX = HERE / "index.html"
 
+# La consola de Windows suele ser cp1252 y reventaba con los símbolos del banner
+# (UnicodeEncodeError al arrancar). Forzamos UTF-8 tolerante en la salida.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # streams redirigidos o sin soporte
+        pass
+
 # ─────────────────────────── yt-dlp ───────────────────────────
 try:
     import yt_dlp
 except ImportError:
     print("\n  ✗ Falta yt-dlp.  Instálalo con:  pip install yt-dlp\n", file=sys.stderr)
     sys.exit(1)
+
+# Sesión con Google / YouTube Data API (módulo local, sin dependencias extra)
+import ytauth
+from ytauth import AuthError
+
+# Cancelar descargas: el nombre de la excepción cambió entre versiones
+CANCELLED = getattr(yt_dlp.utils, "DownloadCancelled", None) or KeyboardInterrupt
+
+
+def has_ffmpeg() -> bool:
+    """ffmpeg hace falta para fusionar video+audio, subtítulos y miniaturas."""
+    return bool(shutil.which("ffmpeg"))
+
+
+FFMPEG = has_ffmpeg()
 
 
 def pick_folder_native(initial: str) -> str:
@@ -95,17 +127,21 @@ class Store:
 
     def __init__(self):
         self.lock = threading.Lock()
-        self.channel = None          # {name, handle, avatar}
+        self.channel = None          # {name, handle, avatar, thumb}
         self.videos = {}             # id -> dict
         self.order = []              # orden de escaneo
         self.running = False
         self.paused = False
         self.stop_flag = False
         self.dest = default_dest()
+        self.scan = {"running": False, "msg": "", "error": ""}
+        self.auth = {"has_client": False, "signed_in": False, "account": None,
+                     "busy": False, "error": ""}
         self.options = {
             "mode": "video",
             "quality": 1080,
             "subs": True,
+            "subs_langs": "es,en",   # pedir «all» dispara el 429 de YouTube
             "meta": True,
             "chapters": False,
             "concurrency": 3,
@@ -114,7 +150,6 @@ class Store:
             "by_date": True,
             "skip_existing": True,   # no volver a descargar lo ya archivado
         }
-        self.executor = None
 
     def snapshot(self):
         with self.lock:
@@ -124,11 +159,38 @@ class Store:
                 "running": self.running,
                 "paused": self.paused,
                 "dest": self.dest,
-                "options": self.options,
+                "options": dict(self.options),
+                "scan": dict(self.scan),
+                "auth": dict(self.auth),
+                "ffmpeg": FFMPEG,
             }
 
 
 STORE = Store()
+
+
+def scan_progress(msg: str):
+    with STORE.lock:
+        STORE.scan["msg"] = msg
+
+
+def refresh_auth(network=True):
+    """Actualiza la caché del estado de sesión (la UI la lee del snapshot)."""
+    try:
+        st = ytauth.status() if network else {
+            "has_client": bool(ytauth.load_client().get("client_id")),
+            "client_id": ytauth.load_client().get("client_id", ""),
+            "signed_in": ytauth.signed_in(),
+            "account": None,
+            "error": "",
+        }
+    except Exception as e:  # noqa: BLE001
+        st = {"has_client": bool(ytauth.load_client().get("client_id")),
+              "signed_in": ytauth.signed_in(), "account": None, "error": str(e)}
+    with STORE.lock:
+        STORE.auth.update(st)
+        STORE.auth["busy"] = False
+    return dict(STORE.auth)
 
 
 # ─────────────────────────── Escaneo ───────────────────────────
@@ -146,8 +208,54 @@ def build_channel_url(text: str) -> str:
     return url
 
 
-def scan_channel(text: str) -> dict:
+def initials_of(name: str) -> str:
+    return "".join(w[0] for w in re.findall(r"\w+", name)[:2]).upper() or "MC"
+
+
+def store_videos(channel: dict, videos: list):
+    """Guarda el resultado de un escaneo y marca lo que ya está en disco."""
+    if STORE.options.get("skip_existing", True):
+        have = downloaded_ids(channel["name"])
+    else:
+        have = set()
+    vmap, order = {}, []
+    for v in videos:
+        v.setdefault("status", "queued")
+        v.setdefault("prog", 0.0)
+        v.setdefault("rate", 0.0)
+        v.setdefault("size", 0)
+        v.setdefault("privacy", "public")
+        v.setdefault("thumb", "")
+        v["sel"] = True
+        if v["id"] in have:
+            v["status"] = "archived"
+            v["sel"] = False
+        vmap[v["id"]] = v
+        order.append(v["id"])
+    with STORE.lock:
+        STORE.channel = channel
+        STORE.videos = vmap
+        STORE.order = order
+
+
+def scan_mine():
+    """Lista TODOS los videos del canal de la sesión (incluye ocultos)."""
+    scan_progress("Conectando con tu canal…")
+    ch, videos = ytauth.list_all_videos(scan_progress)
+    channel = {
+        "name": ch["name"],
+        "handle": ch["handle"] if str(ch["handle"]).startswith("@") else "@" + str(ch["handle"]).lstrip("@"),
+        "avatar": initials_of(ch["name"]),
+        "thumb": ch.get("thumb", ""),
+        "mine": True,
+    }
+    store_videos(channel, videos)
+
+
+def scan_public(text: str):
+    """Escaneo sin sesión: pestaña pública del canal, vía yt-dlp."""
     url = build_channel_url(text)
+    scan_progress("Leyendo el canal…")
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -176,47 +284,44 @@ def scan_channel(text: str) -> dict:
 
     name = info.get("channel") or info.get("uploader") or info.get("title") or "Mi Canal"
     handle = info.get("uploader_id") or info.get("channel_id") or text.strip()
-    initials = "".join(w[0] for w in re.findall(r"\w+", name)[:2]).upper() or "MC"
 
-    videos = {}
-    order = []
+    videos = []
     for idx, e in enumerate(flat):
         vid = e.get("id") or f"v{idx}"
-        duration = int(e.get("duration") or 0)
-        date = e.get("upload_date")  # YYYYMMDD o None
-        videos[vid] = {
+        date = e.get("upload_date")  # YYYYMMDD o None (suele faltar en modo plano)
+        videos.append({
             "id": vid,
             "url": e.get("url") or e.get("webpage_url") or f"https://youtu.be/{vid}",
             "title": e.get("title") or "(sin título)",
-            "duration": duration,
+            "duration": int(e.get("duration") or 0),
             "date": f"{date[:4]}-{date[4:6]}-{date[6:8]}" if date and len(date) == 8 else "",
-            "status": "queued",
-            "prog": 0.0,
-            "rate": 0.0,
             "size": int(e.get("filesize") or e.get("filesize_approx") or 0),
-            "sel": True,
-        }
-        order.append(vid)
+            "privacy": e.get("availability") or "public",
+            "thumb": (e.get("thumbnails") or [{}])[-1].get("url", "") if e.get("thumbnails") else "",
+        })
 
-    # marcar los que ya están descargados para no repetirlos
-    if STORE.options.get("skip_existing", True):
-        have = downloaded_ids(name)
-        for vid, v in videos.items():
-            if vid in have:
-                v["status"] = "archived"
-                v["sel"] = False
+    store_videos({"name": name, "handle": str(handle), "avatar": initials_of(name),
+                  "thumb": "", "mine": False}, videos)
 
+
+def run_scan(kind: str, text: str = ""):
     with STORE.lock:
-        STORE.channel = {"name": name, "handle": handle, "avatar": initials}
-        STORE.videos = videos
-        STORE.order = order
-
-    return STORE.snapshot()
+        STORE.scan = {"running": True, "msg": "Preparando…", "error": ""}
+    try:
+        if kind == "mine":
+            scan_mine()
+        else:
+            scan_public(text)
+        with STORE.lock:
+            STORE.scan = {"running": False, "msg": "", "error": ""}
+    except Exception as e:  # noqa: BLE001
+        with STORE.lock:
+            STORE.scan = {"running": False, "msg": "", "error": str(e)}
 
 
 # ─────────────────────────── Descarga ───────────────────────────
 def apply_cookies(opts: dict) -> dict:
-    """Aplica la sesión para acceder a videos privados/no listados del canal.
+    """Aplica la sesión del navegador para acceder a videos privados.
 
     Prioridad: archivo cookies.txt explícito > cookies del navegador donde el
     usuario inició sesión con la cuenta de Google del canal."""
@@ -229,6 +334,13 @@ def apply_cookies(opts: dict) -> dict:
     return opts
 
 
+def has_session() -> bool:
+    """¿Hay cookies configuradas? (necesarias para descargar videos privados)"""
+    o = STORE.options
+    cf = (o.get("cookies_file") or "").strip()
+    return bool((cf and os.path.exists(cf)) or o.get("cookies_browser"))
+
+
 def safe_name(s: str) -> str:
     return re.sub(r'[<>:"/\\|?*]', "_", s).strip() or "Canal"
 
@@ -238,10 +350,6 @@ ARCHIVE_NAME = ".descargados.txt"
 
 def channel_dir(channel_name: str) -> Path:
     return Path(STORE.dest) / safe_name(channel_name)
-
-
-def archive_path(channel_name: str) -> Path:
-    return channel_dir(channel_name) / ARCHIVE_NAME
 
 
 def downloaded_ids(channel_name: str) -> set:
@@ -270,7 +378,7 @@ def downloaded_ids(channel_name: str) -> set:
 def make_progress_hook(vid: str):
     def hook(d):
         if STORE.stop_flag:
-            raise yt_dlp.utils.DownloadCancelled()
+            raise CANCELLED()
         with STORE.lock:
             v = STORE.videos.get(vid)
             if not v:
@@ -292,14 +400,39 @@ def make_progress_hook(vid: str):
     return hook
 
 
-def ydl_opts_for(vid: str) -> dict:
+def sub_langs() -> list:
+    """Idiomas de subtítulos pedidos, saneados.
+
+    Pedir «all» con subtítulos automáticos hace que yt-dlp solicite ~200 pistas
+    auto-traducidas: YouTube responde 429 y se cae la descarga entera. Por eso
+    se piden idiomas concretos (y nunca el chat en directo)."""
+    raw = (STORE.options.get("subs_langs") or "").strip()
+    langs = [x.strip() for x in re.split(r"[,\s]+", raw) if x.strip()]
+    if not langs:
+        langs = ["es", "en"]
+    if "all" in langs:                       # el usuario lo pidió explícitamente
+        return ["all", "-live_chat"]
+    out = []
+    for lg in langs:
+        out.append(lg)
+        if not lg.endswith(".*") and "-" not in lg:
+            out.append(f"{lg}-.*")           # variantes regionales (es-419, en-US…)
+    out.append("-live_chat")
+    return out
+
+
+def ydl_opts_for(vid: str, with_subs=True) -> dict:
     o = STORE.options
     ch = STORE.channel["name"] if STORE.channel else "Canal"
     base = channel_dir(ch)
+    # El prefijo de fecha se arma aquí (no con %(upload_date)s) porque en el
+    # escaneo plano ese campo llega vacío y yt-dlp escribiría «NA - ...».
+    v = STORE.videos.get(vid) or {}
+    prefix = ""
     if o["by_date"]:
-        tmpl = str(base / "%(upload_date>%Y-%m-%d)s - %(title)s [%(id)s].%(ext)s")
-    else:
-        tmpl = str(base / "%(title)s [%(id)s].%(ext)s")
+        date = (v.get("date") or "").strip()
+        prefix = f"{date} - " if date else "%(upload_date>%Y-%m-%d)s - "
+    tmpl = str(base / (prefix + "%(title)s [%(id)s].%(ext)s"))
 
     opts = {
         "outtmpl": tmpl,
@@ -308,11 +441,11 @@ def ydl_opts_for(vid: str) -> dict:
         "ignoreerrors": False,
         "noprogress": True,
         "progress_hooks": [make_progress_hook(vid)],
-        "writethumbnail": o["meta"],
         "postprocessors": [],
         "retries": 5,
         "fragment_retries": 5,
         "concurrent_fragment_downloads": 4,
+        "windowsfilenames": sys.platform.startswith("win"),
     }
     apply_cookies(opts)
 
@@ -324,29 +457,100 @@ def ydl_opts_for(vid: str) -> dict:
 
     if o["mode"] == "audio":
         opts["format"] = "bestaudio/best"
-        opts["postprocessors"].append(
-            {"key": "FFmpegExtractAudio", "preferredcodec": "m4a", "preferredquality": "0"}
-        )
+        if FFMPEG:
+            opts["postprocessors"].append(
+                {"key": "FFmpegExtractAudio", "preferredcodec": "m4a", "preferredquality": "0"}
+            )
     else:
         q = o["quality"]
-        opts["format"] = f"bv*[height<={q}]+ba/b[height<={q}]/b"
-        opts["merge_output_format"] = "mp4"
+        if FFMPEG:
+            # pistas separadas + fusión (mejor calidad); necesita ffmpeg
+            opts["format"] = f"bv*[height<={q}]+ba/b[height<={q}]/b"
+            opts["merge_output_format"] = "mp4"
+        else:
+            # sin ffmpeg solo sirve un archivo ya combinado
+            opts["format"] = f"b[height<={q}]/b"
 
-    if o["subs"]:
+    if o["subs"] and with_subs:
         opts["writesubtitles"] = True
         opts["writeautomaticsub"] = True
-        opts["subtitleslangs"] = ["all"]
-        opts["postprocessors"].append({"key": "FFmpegEmbedSubtitle"})
+        opts["subtitleslangs"] = sub_langs()
+        opts["sleep_interval_subtitles"] = 1   # evita el 429 de YouTube
+        if FFMPEG:
+            opts["postprocessors"].append({"key": "FFmpegEmbedSubtitle"})
+        # sin ffmpeg quedan como archivos .vtt junto al video
 
     if o["meta"]:
-        opts["postprocessors"].append(
-            {"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": o["chapters"]}
-        )
-        opts["postprocessors"].append({"key": "EmbedThumbnail"})
-    elif o["chapters"]:
+        opts["writethumbnail"] = True
+        if FFMPEG:
+            opts["postprocessors"].append(
+                {"key": "FFmpegMetadata", "add_metadata": True, "add_chapters": o["chapters"]}
+            )
+            opts["postprocessors"].append({"key": "EmbedThumbnail"})
+    elif o["chapters"] and FFMPEG:
         opts["postprocessors"].append({"key": "FFmpegMetadata", "add_chapters": True})
 
     return opts
+
+
+PRIVATE_HINT = (
+    "Video privado: para descargarlo necesitas las cookies del navegador donde "
+    "iniciaste sesión con esta cuenta (panel «Sesión del navegador»)."
+)
+
+
+# YouTube devuelve 403/429 de forma intermitente en las URLs de los flujos. La
+# URL caduca con el intento, así que reintentar exige volver a extraer: por eso
+# se crea un YoutubeDL nuevo en cada pasada.
+TRANSIENT = ("403", "429", "unable to download video data", "timed out",
+             "temporary failure", "connection reset", "read operation")
+BACKOFF = (5, 15, 30, 60)   # los cortes de YouTube vienen a ráfagas: hay que esperar
+
+
+def is_transient(err: str) -> bool:
+    e = err.lower()
+    return any(t in e for t in TRANSIENT)
+
+
+def attempt_download(vid: str, url: str):
+    """Descarga con reintentos y, si los subtítulos fallan, sin ellos."""
+    with_subs = True
+    last = None
+    for i in range(len(BACKOFF) + 1):
+        if STORE.stop_flag:
+            raise CANCELLED()
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_for(vid, with_subs=with_subs)) as ydl:
+                ydl.download([url])
+            return
+        except CANCELLED:
+            raise
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            last = e
+            # Un tropiezo con los subtítulos no debe costarnos el video.
+            if with_subs and "subtitle" in msg.lower():
+                with_subs = False
+                with STORE.lock:
+                    v = STORE.videos.get(vid)
+                    if v:
+                        v["note"] = "sin subtítulos"
+                continue
+            if not is_transient(msg) or i >= len(BACKOFF):
+                raise
+            with STORE.lock:
+                v = STORE.videos.get(vid)
+                if v:
+                    v["status"] = "downloading"
+                    v["prog"] = 0.0
+                    v["rate"] = 0.0
+                    v["note"] = f"reintentando ({i + 1}/{len(BACKOFF)})"
+            waited = 0.0
+            while waited < BACKOFF[i] and not STORE.stop_flag:
+                time.sleep(0.3)
+                waited += 0.3
+    if last:
+        raise last
 
 
 def download_one(vid: str):
@@ -356,14 +560,26 @@ def download_one(vid: str):
         return
     with STORE.lock:
         v = STORE.videos.get(vid)
-        if not v or not v["sel"] or v["status"] not in ("queued",):
+        if not v or not v["sel"] or v["status"] != "queued":
             return
         url = v["url"]
+        private = v.get("privacy") == "private"
         v["status"] = "downloading"
         v["prog"] = 0.0
+
+    # Los privados no se pueden bajar solo con el token de OAuth: avisamos antes
+    # de gastar una petición contra YouTube.
+    if private and not has_session():
+        with STORE.lock:
+            v = STORE.videos.get(vid)
+            if v:
+                v["status"] = "error"
+                v["error"] = PRIVATE_HINT
+                v["rate"] = 0.0
+        return
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts_for(vid)) as ydl:
-            ydl.download([url])
+        attempt_download(vid, url)
         with STORE.lock:
             v = STORE.videos.get(vid)
             if v:
@@ -371,18 +587,28 @@ def download_one(vid: str):
                 v["prog"] = 100.0
                 v["rate"] = 0.0
                 v["sel"] = False
-    except yt_dlp.utils.DownloadCancelled:
+                v.pop("note", None)
+    except CANCELLED:
         with STORE.lock:
             v = STORE.videos.get(vid)
             if v and v["status"] != "done":
                 v["status"] = "queued"
                 v["prog"] = 0.0
     except Exception as e:  # noqa: BLE001
+        msg = str(e)
+        if private and ("Private video" in msg or "Sign in" in msg):
+            msg = PRIVATE_HINT
+        elif "ffmpeg" in msg.lower():
+            msg = "Falta ffmpeg en el sistema: instálalo para fusionar video y audio."
+        elif is_transient(msg):
+            msg = ("YouTube está limitando las descargas desde tu conexión "
+                   "(403/429). Espera unos minutos y vuelve a pulsar Descargar: "
+                   "lo ya bajado no se repite.")
         with STORE.lock:
             v = STORE.videos.get(vid)
             if v:
                 v["status"] = "error"
-                v["error"] = str(e)[:200]
+                v["error"] = msg[:300]
                 v["rate"] = 0.0
 
 
@@ -397,15 +623,19 @@ def run_downloads(ids):
             if v and v["status"] in ("queued", "error"):
                 v["sel"] = True
                 v["status"] = "queued"
+                v.pop("error", None)
+                v.pop("note", None)
 
-    with ThreadPoolExecutor(max_workers=conc) as ex:
-        futures = [ex.submit(download_one, i) for i in ids]
-        for f in futures:
-            f.result()
-
-    with STORE.lock:
-        STORE.running = False
-        STORE.paused = False
+    try:
+        with ThreadPoolExecutor(max_workers=conc) as ex:
+            futures = [ex.submit(download_one, i) for i in ids]
+            for f in futures:
+                f.result()
+    finally:
+        with STORE.lock:
+            STORE.running = False
+            STORE.paused = False
+            STORE.stop_flag = False
 
 
 # ─────────────────────────── HTTP ───────────────────────────
@@ -441,10 +671,75 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
+    # ── Sesión con Google ──
+    def _auth_route(self, path, data):
+        if path == "/api/auth/status":
+            return self._send(200, refresh_auth(network=True))
+
+        if path == "/api/auth/client":
+            ytauth.save_client(data.get("client_id", ""), data.get("client_secret", ""))
+            return self._send(200, refresh_auth(network=False))
+
+        if path == "/api/auth/client-file":
+            chosen = pick_file_native(str(Path.home()), "Elige el JSON del cliente OAuth")
+            if not chosen:
+                return self._send(200, {**STORE.auth, "picked": False})
+            ytauth.save_client_from_file(chosen)
+            return self._send(200, {**refresh_auth(network=False), "picked": True})
+
+        if path == "/api/auth/login":
+            if STORE.auth.get("busy"):
+                return self._send(409, {"error": "Ya hay un inicio de sesión en curso"})
+            if not ytauth.load_client().get("client_id"):
+                return self._send(400, {"error": "Configura antes tu cliente OAuth de Google."})
+
+            def worker():
+                try:
+                    ytauth.login()
+                    refresh_auth(network=True)
+                except AuthError as e:
+                    with STORE.lock:
+                        STORE.auth["busy"] = False
+                        STORE.auth["error"] = str(e)
+                except Exception as e:  # noqa: BLE001
+                    with STORE.lock:
+                        STORE.auth["busy"] = False
+                        STORE.auth["error"] = str(e)
+
+            with STORE.lock:
+                STORE.auth["busy"] = True
+                STORE.auth["error"] = ""
+            threading.Thread(target=worker, daemon=True).start()
+            return self._send(200, {"ok": True})
+
+        if path == "/api/auth/logout":
+            ytauth.logout()
+            with STORE.lock:
+                STORE.channel = None
+                STORE.videos = {}
+                STORE.order = []
+            return self._send(200, refresh_auth(network=False))
+
+        return None
+
     def do_POST(self):
         try:
-            if self.path == "/api/scan":
-                data = self._read_json()
+            data = self._read_json()
+
+            if self.path.startswith("/api/auth/"):
+                if self._auth_route(self.path, data) is None:
+                    self._send(404, {"error": "not found"})
+                return
+
+            if self.path == "/api/scan-mine":
+                if STORE.scan["running"]:
+                    return self._send(409, {"error": "Ya hay un escaneo en curso"})
+                if not ytauth.signed_in():
+                    return self._send(401, {"error": "Inicia sesión con Google primero."})
+                threading.Thread(target=run_scan, args=("mine",), daemon=True).start()
+                self._send(200, {"ok": True})
+
+            elif self.path == "/api/scan":
                 ch = (data.get("channel") or "").strip()
                 opts = data.get("options") or {}
                 with STORE.lock:
@@ -453,24 +748,41 @@ class Handler(BaseHTTPRequestHandler):
                             STORE.options[k] = opts[k]
                 if not ch:
                     return self._send(400, {"error": "Falta el canal"})
-                snap = scan_channel(ch)
-                self._send(200, snap)
+                if STORE.scan["running"]:
+                    return self._send(409, {"error": "Ya hay un escaneo en curso"})
+                threading.Thread(target=run_scan, args=("public", ch), daemon=True).start()
+                self._send(200, {"ok": True})
 
             elif self.path == "/api/options":
-                data = self._read_json()
                 with STORE.lock:
                     STORE.options.update({k: v for k, v in data.items() if k in STORE.options})
-                    if "dest" in data and data["dest"]:
+                    if data.get("dest"):
                         STORE.dest = data["dest"]
                 self._send(200, {"ok": True, "options": STORE.options, "dest": STORE.dest})
 
+            elif self.path == "/api/dest":
+                # ruta escrita a mano (alternativa al selector nativo)
+                p = (data.get("dest") or "").strip()
+                if not p:
+                    return self._send(400, {"error": "Ruta vacía"})
+                try:
+                    Path(p).expanduser().mkdir(parents=True, exist_ok=True)
+                except (OSError, ValueError) as e:
+                    return self._send(400, {"error": f"No se puede usar esa ruta: {e}"})
+                with STORE.lock:
+                    STORE.dest = str(Path(p).expanduser())
+                self._send(200, {"dest": STORE.dest})
+
             elif self.path == "/api/download":
-                data = self._read_json()
                 ids = data.get("ids") or []
                 if STORE.running:
                     return self._send(409, {"error": "Ya hay descargas en curso"})
                 if not ids:
                     return self._send(400, {"error": "Sin selección"})
+                try:
+                    Path(STORE.dest).mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    return self._send(400, {"error": f"No se puede escribir en el destino: {e}"})
                 threading.Thread(target=run_downloads, args=(ids,), daemon=True).start()
                 self._send(200, {"ok": True})
 
@@ -501,6 +813,8 @@ class Handler(BaseHTTPRequestHandler):
 
             else:
                 self._send(404, {"error": "not found"})
+        except AuthError as e:
+            self._send(400, {"error": str(e)})
         except Exception as e:  # noqa: BLE001
             self._send(500, {"error": str(e)})
 
@@ -512,10 +826,15 @@ def main():
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
 
+    refresh_auth(network=False)
+
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     url = f"http://{args.host}:{args.port}/"
     print(f"\n  ▶ Archivador de canal en  {url}")
     print(f"  ▶ Destino por defecto:    {STORE.dest}")
+    if not FFMPEG:
+        print("  ⚠ ffmpeg no está en el PATH: se descargará el mejor archivo ya")
+        print("    combinado (calidad limitada) y los subtítulos irán aparte.")
     print("  ▶ Ctrl+C para salir.\n")
     if not args.no_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
